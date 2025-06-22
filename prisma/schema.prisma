@@ -1,0 +1,170 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  courses   Course[]
+}
+
+model Course {
+  id          String       @id @default(cuid())
+  title       String
+  description String
+  createdAt   DateTime     @default(now())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  lessons     Lesson[]
+  status      CourseStatus @default(IN_PROGRESS)
+  progress    Int          @default(0)
+  grade       Grade        @default(NOT_GRADED)
+  completedAt DateTime?
+
+  summary   Summary?
+  keyPoints KeyPoint[]
+  analytics Analytics?
+}
+
+model Lesson {
+  id          String  @id @default(cuid())
+  title       String
+  description String
+  order       Int
+  duration    String
+  isCompleted Boolean @default(false)
+  completedAt  DateTime?
+  courseId    String
+  timeTaken   Int     @default(0)
+  course      Course  @relation(fields: [courseId], references: [id])
+
+  contentBlocks ContentBlock[]
+  quizz         Quiz?
+}
+
+model ContentBlock {
+  id       String @id @default(cuid())
+  lessonId String
+  lesson   Lesson @relation(fields: [lessonId], references: [id])
+
+  order Int
+  type  ContentType
+
+  code  String?
+  math  String?
+  graph Json?
+  text  String?
+}
+
+enum ContentType {
+  CODE
+  MATH
+  GRAPH
+  TEXT
+}
+
+model Quiz {
+  id           String         @id @default(cuid())
+  title        String
+  lessonId     String         @unique
+  duration     String
+  totalMarks   Int
+  passingMarks Int
+  gainedMarks  Int
+  timeTaken    Int
+  status       QuizStatus?
+  completedAt  DateTime?
+  isCompleted  Boolean        @default(false)
+  lesson       Lesson         @relation(fields: [lessonId], references: [id])
+  questions    QuizQuestion[]
+}
+
+model QuizQuestion {
+  id             String       @id @default(cuid())
+  quizId         String
+  number         Int
+  quiz           Quiz         @relation(fields: [quizId], references: [id])
+  question       String
+  type           QuestionType
+  options        String[]
+  marks          Int
+  isCorrect      Boolean      @default(false)
+  correctAnswers String[]
+  explanation    String
+  rubric         String[]
+}
+
+model Summary {
+  id             String   @id @default(cuid())
+  courseId       String   @unique
+  course         Course   @relation(fields: [courseId], references: [id])
+  overview       String
+  whatYouLearned String[]
+  skillsGained   String[]
+  nextSteps      String[]
+}
+
+model KeyPoint {
+  id       String   @id @default(cuid())
+  courseId String
+  course   Course   @relation(fields: [courseId], references: [id])
+  category String
+  points   String[]
+}
+
+model Analytics {
+  id       String @id @default(cuid())
+  courseId String @unique
+  course   Course @relation(fields: [courseId], references: [id])
+
+  timeSpentTotal   Float
+  timeSpentLessons Float
+  timeSpentQuizzes Float
+
+  averageScore  Float
+  totalQuizzes  Int
+  passedQuizzes Int
+  grade         Grade
+
+  lessonsCompleted Int
+  quizzesCompleted Int
+  totalLessons     Int
+}
+
+enum QuestionType {
+  MCQ
+  MULTIPLE_SELECT
+  DESCRIPTIVE
+  TRUE_FALSE
+}
+
+enum CourseStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum Grade {
+  EXCELLENT
+  GOOD
+  AVERAGE
+  NEEDS_IMPROVEMENT
+  NOT_GRADED
+}
+
+enum QuizStatus {
+  PASS
+  FAIL
+}
