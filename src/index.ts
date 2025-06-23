@@ -1,25 +1,33 @@
 import WebSocket, { WebSocketServer } from 'ws'
 import dotenv from 'dotenv'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { db } from './db' // Import your DB properly
+import { db } from './db' // Ensure this imports Prisma properly
 
 dotenv.config()
 
 const PORT = Number(process.env.PORT) || 3001
+const TOTAL_KEYS = 24
+const MAX_RETRIES = 5
 
 const wss = new WebSocketServer({ port: PORT })
-const encoder = new TextEncoder()
-
 console.log(`✅ WebSocket server running at ws://localhost:${PORT}`)
 
 function sendData ({ ws, data }: { ws: WebSocket; data: unknown }) {
   ws.send(JSON.stringify(data))
 }
 
+function getRandomApiKey (): string {
+  const keyIndex = Math.floor(Math.random() * TOTAL_KEYS) + 1
+  const envKey = `GEMINI_API_KEY_${keyIndex}`
+  const selectedKey = process.env[envKey]
+  if (!selectedKey) throw new Error(`Missing API key for ${envKey}`)
+  return selectedKey
+}
+
 async function generateValidJsonWithRetries (
   prompt: string,
   model: any,
-  maxRetries = 5
+  maxRetries = MAX_RETRIES
 ): Promise<any> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -30,12 +38,10 @@ async function generateValidJsonWithRetries (
         .replace(/\r/g, '')
         .replace(/\u0000/g, '')
         .replace(/^[^{\[]+/, '')
+        .replace(/[\x00-\x1F\x7F]/g, (c: string) =>
+          c === '\n' || c === '\t' ? c : ''
+        )
         .trim()
-
-      text = text.replace(/[\x00-\x1F\x7F]/g, (c: string) =>
-        c === '\n' || c === '\t' ? c : ''
-      )
-
       return JSON.parse(text)
     } catch (err) {
       console.warn(`Attempt ${attempt} failed to generate valid JSON:`, err)
@@ -56,7 +62,6 @@ wss.on('connection', ws => {
         userId,
         personalization = {}
       } = JSON.parse(message.toString())
-
       const {
         level = '',
         preferredTopics = '',
@@ -66,32 +71,14 @@ wss.on('connection', ws => {
         learningStyle = ''
       } = personalization
 
-      console.log('topic:', topic)
-      console.log('userId:', userId)
-      console.log('level', level)
-      console.log('preferredTopics', preferredTopics)
-      console.log('dislikedTopics', dislikedTopics)
-      console.log('goal', goal)
-      console.log('timeCommitment', timeCommitment, 'minutes')
-      console.log('learningStyle', learningStyle)
-
       if (!topic || !userId) throw new Error('Missing topic or userId')
 
-      const keyIndex = Math.floor(Math.random() * 23) + 1
-      const envKey = `GEMINI_API_KEY_${keyIndex}`
-      console.log(envKey)
-      const selectedKey = process.env[envKey]
-
-      if (!selectedKey) throw new Error(`Missing API key for ${envKey}`)
-
-      const ai = new GoogleGenerativeAI(selectedKey)
-
+      const ai = new GoogleGenerativeAI(getRandomApiKey())
       const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' })
 
       sendData({ ws, data: { step: 'syllabus', status: 'started' } })
       sendData({ ws, data: '📚 Generating syllabus...' })
 
-      // ⚙️ Generate **personalized** syllabus prompt:
       const syllabusPrompt = getSyllabusPrompt({
         topic,
         level,
@@ -101,7 +88,6 @@ wss.on('connection', ws => {
         timeCommitment,
         learningStyle
       })
-
       const syllabusJson = await generateValidJsonWithRetries(
         syllabusPrompt,
         model
@@ -109,12 +95,8 @@ wss.on('connection', ws => {
 
       const totalTimeMinutes = Number(timeCommitment) * 60
       const numberOfLessons = syllabusJson.lessons.length
-
-      const lessonTimeTotal = totalTimeMinutes * 0.8 // 80% to lessons
-      const quizTimeTotal = totalTimeMinutes * 0.2 // 20% to quizzes
-
-      const lessonTimePerLesson = lessonTimeTotal / numberOfLessons
-      const quizTimePerLesson = quizTimeTotal / numberOfLessons
+      const lessonTimePerLesson = (totalTimeMinutes * 0.8) / numberOfLessons
+      const quizTimePerLesson = (totalTimeMinutes * 0.2) / numberOfLessons
 
       sendData({
         ws,
@@ -124,8 +106,7 @@ wss.on('connection', ws => {
       const lessons = []
 
       for (const lessonObj of syllabusJson.lessons) {
-        const lessonTitle = lessonObj.title
-        const lessonDuration = lessonObj.duration
+        const { title: lessonTitle, duration: lessonDuration } = lessonObj
 
         sendData({
           ws,
@@ -136,7 +117,6 @@ wss.on('connection', ws => {
           }
         })
 
-        // ⚙️ Generate **personalized** context prompt:
         const contextPrompt = getLessonContextPrompt({
           lessonTitle,
           level,
@@ -194,7 +174,7 @@ wss.on('connection', ws => {
           preferredTopics,
           dislikedTopics,
           goal,
-          timeCommitment: quizTimePerLesson.toString(), // 👈 NEW VALUE
+          timeCommitment: quizTimePerLesson.toString(),
           learningStyle
         })
         const quizJson = await generateValidJsonWithRetries(quizPrompt, model)
@@ -299,7 +279,7 @@ wss.on('connection', ws => {
   ws.on('close', () => console.log('❌ Client disconnected'))
 })
 
-function getSyllabusPrompt ({
+function getSyllabusPrompt({
   topic,
   level = '',
   preferredTopics = '',
@@ -317,63 +297,43 @@ function getSyllabusPrompt ({
   learningStyle?: string
 }) {
   return `
-You are an expert educational content creator specializing in personalized learning design.
+You are a highly specialized curriculum designer for personalized learning programs.
 
-🎯 Your task is to generate a STRICTLY VALID JSON syllabus for the course topic: "${topic}".
+🔐 Your task is to generate a **STRICTLY VALID JSON** syllabus for the course titled **"${topic}"** tailored to the user's preferences.
 
-⚙️ PERSONALIZATION GUIDELINES:
-- Student Level: ${level || 'No preference provided'}
-- Preferred Topics to Include: ${preferredTopics || 'None specified'}
+📌 **Learner Profile**:
+- Skill Level: ${level || 'General'}
+- Topics to Emphasize: ${preferredTopics || 'None specified'}
 - Topics to Avoid: ${dislikedTopics || 'None specified'}
 - Learning Goal: ${goal || 'None specified'}
-- Time Commitment: ${timeCommitment || 'No specific commitment provided'}
-- Preferred Learning Style: ${learningStyle || 'No preference specified'}
+- Total Time Commitment: ${timeCommitment || 'Flexible'}
+- Preferred Learning Style: ${learningStyle || 'None specified'}
 
-Design the course content to match the learner’s background, interests, and available time. Avoid topics they dislike, emphasize those they prefer, and adjust the depth/difficulty accordingly.
+⚠️ **ABSOLUTE RULES**:
+- OUTPUT MUST BE **STRICT VALID JSON**
+- DO NOT include any explanation, markdown, or extra characters outside of the JSON object.
+- JSON **MUST** start with '{' and end with '}'.
+- No null, undefined, or empty ("") values — omit unknowns.
+- All keys and string values **must** be enclosed in double quotes.
+- Escape internal double quotes properly: \"
 
-⚠️ STRICT RULES:
-- OUTPUT **STRICTLY VALID JSON**
-- The response MUST start directly with '{' and end with '}'.
-- **DO NOT** include explanations, introductions, markdown, comments, or code block syntax.
-- **NO extra whitespace** outside the JSON.
-- **NO null, undefined, or empty ("") fields.** If unknown, OMIT the field.
-- All strings must be **double-quoted ("")**.
-- Escape any special characters properly to maintain valid JSON.
-- If you make a mistake in JSON, REPAIR IT before output.
-
-📚 REQUIRED STRICT JSON FORMAT:
+🎨 **STRUCTURE**:
 {
-  "title": "Concise, compelling course title (relevant to topic & personalized preferences)",
-  "description": "1-2 sentence explanation of what the course covers, aligned with user goal.",
+  "title": "Concise, engaging course title (relevant to topic & user preferences)",
+  "description": "1–2 sentence overview aligned to the learner’s goals.",
   "lessons": [
     {
-      "title": "Lesson Title (clear, engaging, no numbering like 'Lesson 1')",
-      "duration": "e.g., '10 minutes' or '1 hour 15 minutes'"
-    }
-    // Add as many lessons as needed for a full personalized educational journey.
-  ]
-}
-
-✅ EXAMPLE FORMAT (STRUCTURE ONLY — NOT CONTENT):
-{
-  "title": "Mastering Digital Marketing",
-  "description": "Learn how to effectively promote products and services online using proven digital marketing strategies.",
-  "lessons": [
-    {
-      "title": "Introduction to Digital Marketing",
-      "duration": "10 minutes"
-    },
-    {
-      "title": "SEO Basics for Website Optimization",
-      "duration": "20 minutes"
+      "title": "Lesson Title (engaging, specific, NOT 'Lesson 1')",
+      "duration": "e.g., '10 minutes', '45 minutes', or '1 hour 30 minutes'"
     }
   ]
 }
 
-GENERATE a personalized, complete syllabus suitable for the learner’s profile.`
+✅ If JSON generation fails for any reason, respond ONLY with '{}'.
+`
 }
 
-function getLessonContextPrompt ({
+function getLessonContextPrompt({
   lessonTitle,
   level = '',
   preferredTopics = '',
@@ -391,64 +351,39 @@ function getLessonContextPrompt ({
   learningStyle?: string
 }) {
   return `
-You are an expert curriculum designer specializing in personalized education.
+You are a curriculum architect creating **STRICTLY VALID JSON** for a lesson titled "${lessonTitle}".
 
-🎯 Your task is to generate a STRICTLY VALID JSON lesson object for the lesson titled: "${lessonTitle}".
-
-⚙️ PERSONALIZATION GUIDELINES:
-- Student Level: ${level || 'No preference provided'}
-- Preferred Topics to Include: ${preferredTopics || 'None specified'}
+📌 **Learner Profile**:
+- Skill Level: ${level || 'General'}
+- Preferred Topics: ${preferredTopics || 'None specified'}
 - Topics to Avoid: ${dislikedTopics || 'None specified'}
-- Learning Goal: ${goal || 'None specified'}
-- Time Commitment: ${
-    timeCommitment || 'No specific commitment provided'
-  } Minutes
-- Preferred Learning Style: ${learningStyle || 'No preference specified'}
+- Goal: ${goal || 'None specified'}
+- Available Time: ${timeCommitment || 'Flexible'}
+- Learning Style: ${learningStyle || 'General'}
 
-Adapt the lesson content based on these preferences. Use simpler language and foundational concepts for beginners; provide deeper insights for advanced learners. Emphasize preferred topics, avoid disliked ones, and tailor the content length/depth to match time commitment and learning style.
+⚠️ **STRICT JSON RULES**:
+- Response MUST start with '{' and end with '}' — NOTHING ELSE.
+- NO markdown, explanations, code fences, or comments.
+- OMIT empty or unknown values.
+- Strings MUST be double-quoted, and embedded quotes properly escaped.
 
-⚠️ STRICT RULES:
-- Output **STRICTLY VALID JSON**.
-- The response MUST start directly with '{' and end with '}'.
-- **NO** markdown, introductions, explanations, comments, or code blocks.
-- **NO** empty strings, null, or undefined. If unknown, OMIT the field.
-- **Strings must be double-quoted**.
-- Properly escape special characters (e.g., use \" for quotes inside text).
-- If JSON is invalid, **REPAIR** it before output.
-
-📚 REQUIRED STRICT JSON FORMAT:
+📚 **STRUCTURE**:
 {
   "title": "${lessonTitle}",
-  "objective": "One clear, concise learning objective describing what the learner will achieve after completing this lesson.",
+  "objective": "One clear, specific outcome describing what the learner will accomplish.",
   "sections": [
     {
-      "title": "Clear, descriptive, and engaging section heading",
-      "description": "1–2 sentence explanation of what this section covers, clearly contributing to the lesson’s objective."
-    }
-    // Add as many sections as necessary for complete understanding.
-  ]
-}
-
-✅ STRUCTURE EXAMPLE (not content):
-{
-  "title": "Understanding Digital Marketing Funnels",
-  "objective": "Understand how marketing funnels guide potential customers from awareness to conversion.",
-  "sections": [
-    {
-      "title": "Introduction to Funnels",
-      "description": "Learn what a marketing funnel is and why it’s important for guiding customer journeys."
-    },
-    {
-      "title": "Stages of a Funnel",
-      "description": "Explore each key stage in a funnel, from awareness to post-purchase engagement."
+      "title": "Engaging section title (clear, concise)",
+      "description": "Brief explanation of what the section covers."
     }
   ]
 }
 
-Generate as many sections as necessary to ensure full learner understanding of the topic.`
+✅ If JSON generation fails, respond ONLY with '{}'.
+`
 }
 
-function getAllSectionsContentPrompt ({
+function getAllSectionsContentPrompt({
   context,
   level = '',
   preferredTopics = '',
@@ -466,35 +401,26 @@ function getAllSectionsContentPrompt ({
   learningStyle?: string
 }) {
   return `
-You are an expert lesson content creator.
+You are a specialized educational content writer generating **STRICTLY VALID JSON** for the sections of the lesson "${context.title}".
 
-🎯 Your task is to generate detailed educational content for ALL sections of the lesson titled: "${
-    context.title
-  }".
+🎯 Lesson Objective: "${context.objective}"
 
-📖 Lesson Objective: "${context.objective}"
-
-👤 Learner Profile (Personalization to strictly follow):
+📌 **Learner Profile**:
 - Skill Level: ${level || 'General'}
-- Preferred Topics: ${preferredTopics || 'None specified'}
-- Topics to Avoid: ${dislikedTopics || 'None specified'}
-- Goal: ${goal || 'None specified'}
-- Time Commitment: ${timeCommitment || 'No specific time constraint'}
-- Preferred Learning Style: ${learningStyle || 'None specified'}
+- Emphasize Topics: ${preferredTopics || 'None'}
+- Avoid Topics: ${dislikedTopics || 'None'}
+- Goal: ${goal || 'None'}
+- Time Commitment: ${timeCommitment || 'Flexible'}
+- Learning Style: ${learningStyle || 'General'}
 
-⚠️ STRICT JSON ONLY — Follow these formatting instructions EXACTLY:
+⚠️ **STRICT JSON RULES**:
+- DO NOT include markdown, explanations, or code syntax.
+- Output MUST start with '{' and end with '}'.
+- OMIT empty or unknown values.
+- Strings MUST be double-quoted. Escape special characters correctly.
+- Proper JSON structure with NO extra whitespace.
 
-✅ The response MUST start directly with '{' and end with '}' — NO introductory text, NO explanation, NO markdown formatting.
-
-✅ All property names and string values must be enclosed in double quotes ("").
-
-✅ DO NOT omit commas between JSON fields, and DO NOT include trailing commas.
-
-✅ Escape any embedded quotes properly with \" if necessary.
-
-❗ If you are unable to generate the JSON properly for any reason, respond ONLY with {}.
-
-📚 REQUIRED JSON FORMAT:
+📚 **STRUCTURE**:
 {
   "sections": [
     {
@@ -502,59 +428,31 @@ You are an expert lesson content creator.
       "contentBlocks": [
         {
           "type": "TEXT" | "CODE" | "MATH" | "GRAPH",
-          "content": "Detailed content here OR structured object for GRAPH"
+          "content": "Detailed content or structured object for GRAPH type"
         }
       ]
     }
   ]
 }
 
-✅ STRICT FORMAT for "GRAPH" contentBlocks:
+✅ **GRAPH FORMAT Example (structure only)**:
 {
   "type": "GRAPH",
   "content": {
-    "description": "Brief description of what the graph represents.",
-    "xKey": "label or x-axis key name",
-    "yKey": "value or y-axis key name",
+    "description": "Brief description of the graph.",
+    "xKey": "X-axis label",
+    "yKey": "Y-axis label",
     "data": [
-      { "label": "Label for X-Axis", "value": Numeric or String for Y-Axis }
+      { "label": "Label", "value": NumericValue }
     ]
   }
 }
 
-⚙️ Content Guidelines:
-
-- Generate clear, well-structured sections that progressively teach the learner.
-- Each section MUST directly contribute to achieving the lesson objective.
-- Tailor explanations to the specified skill level ("${level || 'General'}").
-- Emphasize topics matching: ${preferredTopics || 'None'}.
-- Avoid discussing topics related to: ${dislikedTopics || 'None'}.
-- Adapt content to suit a "${learningStyle || 'general'}" learning style.
-- If "Project-focused," include more practical examples.
-- Adjust length/detail to fit the learner’s time commitment: "${
-    timeCommitment || 'None'
-  }".
-
-📌 Example structure for GRAPH block (Do NOT include this example in the response!):
-{
-  "type": "GRAPH",
-  "content": {
-    "description": "Monthly revenue trend over Q1.",
-    "xKey": "month",
-    "yKey": "revenue",
-    "data": [
-      { "month": "January", "revenue": 5000 },
-      { "month": "February", "revenue": 7000 }
-    ]
-  }
-}
-
-📢 NO introductions, NO markdown, NO extra whitespace, STRICT JSON ONLY.
-If unsure or JSON generation fails, respond with '{}' ONLY.
+If JSON generation fails or you’re unsure, return '{}' ONLY.
 `
 }
 
-function getQuizPrompt ({
+function getQuizPrompt({
   lessonTitle,
   contentBlocks,
   level = '',
@@ -574,33 +472,30 @@ function getQuizPrompt ({
   learningStyle?: string
 }) {
   return `
-You are an expert quiz generator with advanced knowledge of educational assessment and personalized learning.
+You are an expert educational assessment designer.
 
-🎯 Your task is to generate a STRICTLY VALID JSON quiz for the lesson titled: "${lessonTitle}".
+🎯 Your task is to generate a **STRICTLY VALID JSON** quiz for the lesson titled: "${lessonTitle}".
 
-👤 Learner Profile (USE THIS to tailor questions):
+📌 **Learner Profile (FOLLOW STRICTLY):**
 - Skill Level: ${level || 'General'}
-- Preferred Topics: ${preferredTopics || 'None specified'}
-- Topics to Avoid: ${dislikedTopics || 'None specified'}
+- Emphasize Topics: ${preferredTopics || 'None specified'}
+- Avoid Topics: ${dislikedTopics || 'None specified'}
 - Goal: ${goal || 'None specified'}
-- Time Commitment: ${timeCommitment || 'None specified'} Minutes
-- Preferred Learning Style: ${learningStyle || 'None specified'}
+- Available Time: ${timeCommitment || 'Flexible'}
+- Learning Style: ${learningStyle || 'None specified'}
 
-📖 Lesson Content (REFERENCE ONLY — DO NOT INCLUDE in response):
+📖 Lesson Content (REFERENCE ONLY, DO NOT INCLUDE IN RESPONSE):
 ${JSON.stringify(contentBlocks)}
 
-⚠️ STRICT JSON ONLY RULES:
+⚠️ **ABSOLUTE JSON RULES**:
+- OUTPUT MUST start directly with '{' and end with '}'.
+- OMIT markdown, explanations, introductory text, comments, or code fences.
+- OMIT empty or unknown values.
+- Strings MUST use double quotes. Escape embedded quotes properly: \\".
+- Trailing commas are NOT allowed.
+- If JSON generation fails, respond ONLY with '{}'.
 
-✅ Response MUST start directly with '{' and end with '}'.
-✅ DO NOT include markdown, explanations, or ANY introductory text.
-✅ All property names and string values MUST be enclosed in double quotes ("").
-✅ Escape embedded quotes (e.g., use \\" inside strings).
-✅ DO NOT include null, undefined, or empty string ("") values. OMIT unknowns.
-✅ DO NOT include trailing commas.
-✅ If you CANNOT generate strictly valid JSON, respond ONLY with '{}'.
-
-📚 REQUIRED JSON STRUCTURE:
-
+📚 **REQUIRED JSON FORMAT**:
 {
   "title": "Quiz for ${lessonTitle}",
   "duration": "10 minutes",
@@ -610,40 +505,38 @@ ${JSON.stringify(contentBlocks)}
   "questions": [
     {
       "number": 1,
-      "question": "Clear, concise question directly based on the lesson content.",
+      "question": "Clear, concise question based on the lesson content.",
       "type": "MCQ" | "MULTIPLE_SELECT" | "DESCRIPTIVE" | "TRUE_FALSE",
-      "options": ["A", "B", "C", "D"],                // REQUIRED for MCQ & MULTIPLE_SELECT only
+      "options": ["Option A", "Option B", "Option C", "Option D"],  // REQUIRED for MCQ & MULTIPLE_SELECT ONLY
       "marks": 10,
-      "correctAnswers": ["A"],                        // REQUIRED for all EXCEPT DESCRIPTIVE
-      "explanation": "Short explanation of why the answer is correct.",  // REQUIRED for all EXCEPT DESCRIPTIVE
-      "rubric": ["Point 1", "Point 2"]                // REQUIRED for DESCRIPTIVE only
+      "correctAnswers": ["A"],                                      // REQUIRED for ALL except DESCRIPTIVE
+      "explanation": "Short explanation of the correct answer.",    // REQUIRED for ALL except DESCRIPTIVE
+      "rubric": ["Point 1", "Point 2"]                              // REQUIRED for DESCRIPTIVE ONLY
     }
   ]
 }
 
-✅ Quiz Requirements:
+✅ **Quiz Requirements**:
+- **5 to 8 questions** covering a mix of concepts, difficulty levels, and question types.
+- **Types:**
+  - MCQ → 4 plausible, distinct options.
+  - MULTIPLE_SELECT → 4 plausible options, multiple correct.
+  - TRUE_FALSE → Must be clearly True or False.
+  - DESCRIPTIVE → Include rubric (minimum 2 points) for grading.
+- Total Marks MUST equal 50.
+- Number questions sequentially starting at 1.
+- Adjust difficulty based on learner’s **skill level**.
+- Avoid questions related to: ${dislikedTopics || 'None specified'}.
+- Explanations REQUIRED for all except DESCRIPTIVE.
+- Provide **practical application-based** questions if the learning style is "Project-focused".
+- Questions MUST vary in complexity (easy → medium → hard).
 
-- Generate **5–8** questions relevant to the lesson content.
-- Adjust difficulty based on learner **skill level**: 
-  ➔ Beginner → simpler, foundational.
-  ➔ Advanced → deeper, more analytical.
-- If learning style is **Project-focused**, include practical application-based questions.
-- **Avoid** generating questions related to "${
-    dislikedTopics || 'None specified'
-  }".
-- Balance MCQ, MULTIPLE_SELECT, TRUE_FALSE, and DESCRIPTIVE.
-- Provide plausible **4 options** for MCQ/MULTIPLE_SELECT.
-- Include **rubric** for DESCRIPTIVE with at least 2 points.
-- **Total marks MUST equal 50.**
-- Ensure clear explanations for every answer (except DESCRIPTIVE).
-- Questions MUST be sequentially numbered starting from 1.
-- Prefer diversity in complexity — mix easy, medium, hard.
-
-🔒 STRICT VALID JSON ONLY. Begin generating if fully understood.
+🔐 **STRICT VALID JSON ONLY.** Respond with '{}' if unsure.
 `
 }
 
-function getPostCourseDataPrompt ({
+
+function getPostCourseDataPrompt({
   topic,
   level = '',
   preferredTopics = '',
@@ -663,74 +556,66 @@ function getPostCourseDataPrompt ({
   return `
 You are an expert educational analyst and instructional designer.
 
-🎯 Your task is to generate a STRICTLY VALID JSON object representing the **summary**, **key points**, and **analytics** for the personalized course titled: "${topic}".
+🎯 Your task is to generate a **STRICTLY VALID JSON** object for the **summary**, **key points**, and **analytics** of the personalized course titled: "${topic}".
 
-👤 Learner Profile (USE THIS to tailor your output):
+📌 **Learner Profile:**
 - Skill Level: ${level || 'General'}
-- Preferred Topics: ${preferredTopics || 'None specified'}
-- Topics to Avoid: ${dislikedTopics || 'None specified'}
+- Emphasize Topics: ${preferredTopics || 'None specified'}
+- Avoid Topics: ${dislikedTopics || 'None specified'}
 - Goal: ${goal || 'None specified'}
-- Time Commitment: ${timeCommitment || 'None specified'}
-- Preferred Learning Style: ${learningStyle || 'None specified'}
+- Available Time: ${timeCommitment || 'Flexible'}
+- Learning Style: ${learningStyle || 'None specified'}
 
-⚠️ STRICT JSON FORMAT ONLY. Follow these rules:
+⚠️ **STRICT JSON FORMAT RULES**:
+- MUST start with '{' and end with '}' — NO other output allowed.
+- NO markdown, explanations, or introductory text.
+- OMIT empty or unknown values.
+- All property names and string values must be double-quoted.
+- Escape embedded quotes properly using \\".
+- NO trailing commas.
+- If JSON generation fails or is uncertain, respond ONLY with '{}'.
 
-✅ The response MUST start directly with '{' and end with '}'.
-✅ DO NOT include any explanations, markdown formatting, or introductory text.
-✅ All property names and string values MUST be enclosed in double quotes ("").
-✅ DO NOT omit commas. DO NOT include trailing commas.
-✅ Escape embedded quotes properly (use \\" inside strings).
-✅ If you cannot generate valid JSON, respond ONLY with '{}'.
-
-📚 REQUIRED JSON STRUCTURE:
-
+📚 **REQUIRED JSON STRUCTURE**:
 {
   "summary": {
-    "overview": "2-3 sentence summary of the course tailored to the learner’s ${
-      goal || 'overall learning objective'
-    }.",
+    "overview": "2–3 sentences summarizing the course tailored to the learner’s ${goal || 'learning objective'}.",
     "whatYouLearned": ["Concept 1", "Concept 2", "Concept 3"],
     "skillsGained": ["Skill 1", "Skill 2", "Skill 3"],
-    "nextSteps": ["Recommended next topic 1", "Recommended next topic 2"]
+    "nextSteps": ["Recommended topic 1", "Recommended topic 2"]
   },
   "keyPoints": [
     {
       "category": "e.g., Core Concepts, Best Practices, Tools Used",
-      "points": ["Important point 1", "Important point 2", "Important point 3"]
+      "points": ["Key point 1", "Key point 2", "Key point 3"]
     }
   ],
   "analytics": {
-    "timeSpentTotal": float,            // e.g., 120.5
-    "timeSpentLessons": float,          // e.g., 90.0
-    "timeSpentQuizzes": float,          // e.g., 30.5
-    "averageScore": float,              // e.g., 80.0 (should match with grade realistically)
-    "totalQuizzes": integer,            // e.g., 5
-    "passedQuizzes": integer,           // e.g., 4
+    "timeSpentTotal": float,            // = timeSpentLessons + timeSpentQuizzes (e.g., 120.5)
+    "timeSpentLessons": float,          // (e.g., 90.0)
+    "timeSpentQuizzes": float,          // (e.g., 30.5)
+    "averageScore": float,              // (e.g., 85.0)
+    "totalQuizzes": integer,            // (e.g., 5)
+    "passedQuizzes": integer,           // (e.g., 4)
     "grade": "EXCELLENT" | "GOOD" | "AVERAGE" | "NEEDS_IMPROVEMENT",
-    "lessonsCompleted": integer,        // e.g., 10
-    "quizzesCompleted": integer,        // e.g., 5
-    "totalLessons": integer             // e.g., 10
+    "lessonsCompleted": integer,        // (e.g., 10)
+    "quizzesCompleted": integer,        // (e.g., 5)
+    "totalLessons": integer             // (e.g., 10)
   }
 }
 
-✅ Generation Guidelines:
+✅ **Generation Guidelines**:
+- Overview must reflect **goal** or general learning purpose.
+- Avoid mentioning: ${dislikedTopics || 'None'}.
+- nextSteps → Recommend relevant follow-up learning paths.
+- **Grade/averageScore correlation:**
+  - EXCELLENT → 85–100
+  - GOOD → 70–85
+  - AVERAGE → 50–70
+  - NEEDS_IMPROVEMENT → Below 50
+- Use **float** numbers for time metrics; **integers** for counts.
+- Arrays for **whatYouLearned**, **skillsGained**, and **nextSteps** should each have **at least 2–3** items.
+- Ensure that **timeSpentTotal = timeSpentLessons + timeSpentQuizzes**.
 
-- Tailor the **overview**, **whatYouLearned**, **skillsGained**, and **nextSteps** based on the **goal**, **level**, and **learningStyle**.
-- Avoid mentioning "${dislikedTopics || 'None'}".
-- "nextSteps" should suggest relevant follow-up courses/topics aligned with ${
-    goal || 'the learner’s learning objectives'
-  }.
-- "analytics" values MUST be realistic and coherent:
-  ➔ timeSpentTotal = timeSpentLessons + timeSpentQuizzes
-  ➔ averageScore should realistically correspond with grade:
-     EXCELLENT → 85–100
-     GOOD → 70–85
-     AVERAGE → 50–70
-     NEEDS_IMPROVEMENT → <50
-- Use **float** values for time durations (e.g., 120.5), NOT strings.
-- All arrays must have at least 2–3 items where applicable.
-- Ensure that **"grade"** is logically consistent with **"averageScore"**.
-
-🔒 STRICT VALID JSON ONLY. Begin generating the JSON if fully understood.
+🔐 **STRICT VALID JSON ONLY.** Respond with '{}' if unsure.
 `
 }
