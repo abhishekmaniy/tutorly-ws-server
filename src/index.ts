@@ -5,7 +5,6 @@ import { db } from './db' // Import your DB properly
 
 dotenv.config()
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY!
 const PORT = Number(process.env.PORT) || 3001
 
 const wss = new WebSocketServer({ port: PORT })
@@ -78,8 +77,16 @@ wss.on('connection', ws => {
 
       if (!topic || !userId) throw new Error('Missing topic or userId')
 
-      const ai = new GoogleGenerativeAI(GEMINI_API_KEY)
-      const model = ai.getGenerativeModel({ model: 'gemini-1.5-pro-latest' })
+      const keyIndex = Math.floor(Math.random() * 23) + 1
+      const envKey = `GEMINI_API_KEY_${keyIndex}`
+      console.log(envKey)
+      const selectedKey = process.env[envKey]
+
+      if (!selectedKey) throw new Error(`Missing API key for ${envKey}`)
+
+      const ai = new GoogleGenerativeAI(selectedKey)
+
+      const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' })
 
       sendData({ ws, data: { step: 'syllabus', status: 'started' } })
       sendData({ ws, data: '📚 Generating syllabus...' })
