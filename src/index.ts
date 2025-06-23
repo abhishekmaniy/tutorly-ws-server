@@ -279,7 +279,7 @@ wss.on('connection', ws => {
   ws.on('close', () => console.log('❌ Client disconnected'))
 })
 
-function getSyllabusPrompt({
+function getSyllabusPrompt ({
   topic,
   level = '',
   preferredTopics = '',
@@ -297,9 +297,10 @@ function getSyllabusPrompt({
   learningStyle?: string
 }) {
   return `
-You are a highly specialized curriculum designer for personalized learning programs.
+You are an expert educational content creator.
 
-🔐 Your task is to generate a **STRICTLY VALID JSON** syllabus for the course titled **"${topic}"** tailored to the user's preferences.
+🎯 Your task is to generate a STRICTLY VALID JSON syllabus for the course topic: "${topic}".
+
 
 📌 **Learner Profile**:
 - Skill Level: ${level || 'General'}
@@ -308,32 +309,59 @@ You are a highly specialized curriculum designer for personalized learning progr
 - Learning Goal: ${goal || 'None specified'}
 - Total Time Commitment: ${timeCommitment || 'Flexible'}
 - Preferred Learning Style: ${learningStyle || 'None specified'}
+⚠️ CRITICAL RULES — Follow strictly:
 
-⚠️ **ABSOLUTE RULES**:
-- OUTPUT MUST BE **STRICT VALID JSON**
-- DO NOT include any explanation, markdown, or extra characters outside of the JSON object.
-- JSON **MUST** start with '{' and end with '}'.
-- No null, undefined, or empty ("") values — omit unknowns.
-- All keys and string values **must** be enclosed in double quotes.
-- Escape internal double quotes properly: \"
+Output STRICT VALID JSON.
 
-🎨 **STRUCTURE**:
+The response MUST start directly with '{' and end with '}'.
+
+NO explanations, introductions, markdown, comments, or code block syntax.
+
+NO extra whitespace outside the JSON.
+
+NO null, undefined, or empty string ("") values. If a value is unknown, OMIT the field entirely.
+
+Escape any special characters properly to maintain valid JSON (e.g., quotes within strings must be escaped: \").
+
+All strings must be double-quoted.
+
+If you make a mistake in JSON, repair the JSON before responding.
+
+📚 Required JSON Format (strict):
 {
-  "title": "Concise, engaging course title (relevant to topic & user preferences)",
-  "description": "1–2 sentence overview aligned to the learner’s goals.",
-  "lessons": [
-    {
-      "title": "Lesson Title (engaging, specific, NOT 'Lesson 1')",
-      "duration": "e.g., '10 minutes', '45 minutes', or '1 hour 30 minutes'"
-    }
-  ]
+"title": "Concise, compelling course title",
+"description": "1-2 sentence clear explanation of what the course covers.",
+"lessons": [
+{
+"title": "Lesson Title (clear and engaging, no numbering like 'Lesson 1')",
+"duration": "e.g., '10 minutes' or '1 hour 15 minutes'"
+}
+// Add as many lessons as needed for a full learning journey.
+]
 }
 
-✅ If JSON generation fails for any reason, respond ONLY with '{}'.
+Example:
+{
+"title": "Mastering Digital Marketing",
+"description": "Learn how to effectively promote products and services online using proven digital marketing strategies.",
+"lessons": [
+{
+"title": "Introduction to Digital Marketing",
+"duration": "10 minutes"
+},
+{
+"title": "SEO Basics for Website Optimization",
+"duration": "20 minutes"
+}
+]
+}
+
+Generate a complete syllabus with as many lessons as necessary for a full, well-rounded educational experience.
+}
 `
 }
 
-function getLessonContextPrompt({
+function getLessonContextPrompt ({
   lessonTitle,
   level = '',
   preferredTopics = '',
@@ -351,7 +379,9 @@ function getLessonContextPrompt({
   learningStyle?: string
 }) {
   return `
-You are a curriculum architect creating **STRICTLY VALID JSON** for a lesson titled "${lessonTitle}".
+You are an expert curriculum designer.
+
+🎯 Your task is to generate a STRICTLY VALID JSON lesson object for the lesson titled: "${lessonTitle}".
 
 📌 **Learner Profile**:
 - Skill Level: ${level || 'General'}
@@ -360,30 +390,65 @@ You are a curriculum architect creating **STRICTLY VALID JSON** for a lesson tit
 - Goal: ${goal || 'None specified'}
 - Available Time: ${timeCommitment || 'Flexible'}
 - Learning Style: ${learningStyle || 'General'}
+⚠️ STRICT RULES — Follow exactly:
 
-⚠️ **STRICT JSON RULES**:
-- Response MUST start with '{' and end with '}' — NOTHING ELSE.
-- NO markdown, explanations, code fences, or comments.
-- OMIT empty or unknown values.
-- Strings MUST be double-quoted, and embedded quotes properly escaped.
+Respond ONLY with valid JSON. The output MUST start directly with { and end with }.
 
-📚 **STRUCTURE**:
+NO markdown formatting, NO explanations, NO introductions.
+
+NO empty strings, nulls, or undefined values. If you don't know a value, OMIT the field entirely.
+
+Properly escape any special characters in strings (e.g., \" for quotes inside text).
+
+Strings must be double-quoted.
+
+If the JSON is invalid, REPAIR it before submitting.
+
+📚 Output JSON Format (REQUIRED):
 {
-  "title": "${lessonTitle}",
-  "objective": "One clear, specific outcome describing what the learner will accomplish.",
-  "sections": [
-    {
-      "title": "Engaging section title (clear, concise)",
-      "description": "Brief explanation of what the section covers."
-    }
-  ]
+"title": "${lessonTitle}",
+"objective": "One clear, concise learning objective describing what the learner will achieve after completing this lesson.",
+"sections": [
+{
+"title": "Clear, descriptive, and engaging section heading",
+"description": "1–2 sentence explanation of what this section covers, clearly contributing to the lesson’s objective."
+}
+// Add as many sections as necessary for complete understanding.
+]
 }
 
-✅ If JSON generation fails, respond ONLY with '{}'.
+✅ Instructions for content generation:
+
+Make sure the objective describes what the learner will be able to do/know/understand by the end of this lesson.
+
+Each section should be unique, focusing on ONE core subtopic or key concept.
+
+Do not use numbering in section titles (e.g., no "Section 1").
+
+No placeholders like "To be filled"—all fields must be fully completed.
+
+📌 Example (structure only, not content):
+{
+"title": "Understanding Digital Marketing Funnels",
+"objective": "Understand how marketing funnels guide potential customers from awareness to conversion.",
+"sections": [
+{
+"title": "Introduction to Funnels",
+"description": "Learn what a marketing funnel is and why it’s important for guiding customer journeys."
+},
+{
+"title": "Stages of a Funnel",
+"description": "Explore each key stage in a funnel, from awareness to post-purchase engagement."
+}
+]
+}
+
+Generate as many sections as required to ensure learners fully grasp the lesson topic.
+
 `
 }
 
-function getAllSectionsContentPrompt({
+function getAllSectionsContentPrompt ({
   context,
   level = '',
   preferredTopics = '',
@@ -401,9 +466,13 @@ function getAllSectionsContentPrompt({
   learningStyle?: string
 }) {
   return `
-You are a specialized educational content writer generating **STRICTLY VALID JSON** for the sections of the lesson "${context.title}".
+You are an expert lesson content creator.
 
-🎯 Lesson Objective: "${context.objective}"
+🎯 Your task is to generate detailed educational content for all sections of the lesson titled: "${
+    context.title
+  }"
+
+📖 Lesson Objective: "${context.objective}"
 
 📌 **Learner Profile**:
 - Skill Level: ${level || 'General'}
@@ -413,14 +482,25 @@ You are a specialized educational content writer generating **STRICTLY VALID JSO
 - Time Commitment: ${timeCommitment || 'Flexible'}
 - Learning Style: ${learningStyle || 'General'}
 
-⚠️ **STRICT JSON RULES**:
-- DO NOT include markdown, explanations, or code syntax.
-- Output MUST start with '{' and end with '}'.
-- OMIT empty or unknown values.
-- Strings MUST be double-quoted. Escape special characters correctly.
-- Proper JSON structure with NO extra whitespace.
+⚠️ STRICT JSON ONLY — Follow these formatting instructions exactly:
 
-📚 **STRUCTURE**:
+✅ Start the response directly with { — no introductory text, no explanation, no markdown formatting.
+
+✅ DO NOT include any phrases like "Here is..." or "Sure!".
+
+✅ All property names and string values must be enclosed in double quotes ("").
+
+✅ DO NOT omit commas between JSON fields, and DO NOT include trailing commas.
+
+✅ Escape any embedded quotes properly with \" if necessary.
+
+❗ If you are unable to generate the JSON properly for any reason, respond ONLY with {}.
+
+📚 REQUIRED JSON FORMAT:
+
+json
+Copy
+Edit
 {
   "sections": [
     {
@@ -428,31 +508,63 @@ You are a specialized educational content writer generating **STRICTLY VALID JSO
       "contentBlocks": [
         {
           "type": "TEXT" | "CODE" | "MATH" | "GRAPH",
-          "content": "Detailed content or structured object for GRAPH type"
+          "content": "Detailed content here."
         }
       ]
     }
   ]
 }
+✅ Content Guidelines (Strictly Follow):
 
-✅ **GRAPH FORMAT Example (structure only)**:
+Include all sections related to the lesson context.
+
+Each section must have at least 1 or more contentBlocks arranged in logical teaching order.
+
+Use the appropriate type:
+
+"TEXT" ➔ Explanations, conceptual overviews, descriptions.
+
+"CODE" ➔ Programming code or configuration examples.
+
+"MATH" ➔ Mathematical formulas or expressions.
+
+"GRAPH" ➔ Diagrams or visual explanations (describe in text what the graph should show).
+
+Combine multiple types in a section when appropriate (Example: "TEXT" ➔ "CODE" ➔ "GRAPH" in sequence for better understanding).
+
+Write clear, coherent, and educational content. Avoid short or incomplete explanations.
+
+Make contentBlocks substantial—each should help the learner fully grasp that part of the section.
+
+Ensure logical flow across the sections to support progressive understanding of the lesson.
+
+⚙️ Example of Good Structure (for reference only, DO NOT include this in your response):
+
+json
+Copy
+Edit
 {
-  "type": "GRAPH",
-  "content": {
-    "description": "Brief description of the graph.",
-    "xKey": "X-axis label",
-    "yKey": "Y-axis label",
-    "data": [
-      { "label": "Label", "value": NumericValue }
-    ]
-  }
+  "sections": [
+    {
+      "title": "Understanding Functions in JavaScript",
+      "contentBlocks": [
+        {
+          "type": "TEXT",
+          "content": "Functions allow you to reuse blocks of code by encapsulating functionality into callable units."
+        },
+        {
+          "type": "CODE",
+          "content": "function greet(name) {\n  return 'Hello, world!';\n}"
+        }
+      ]
+    }
+  ]
 }
-
-If JSON generation fails or you’re unsure, return '{}' ONLY.
+🔒 STRICT JSON FORMAT REQUIRED. Respond now with the completed JSON. If unsure, respond with '{}' only.
 `
 }
 
-function getQuizPrompt({
+function getQuizPrompt ({
   lessonTitle,
   contentBlocks,
   level = '',
@@ -472,9 +584,16 @@ function getQuizPrompt({
   learningStyle?: string
 }) {
   return `
-You are an expert educational assessment designer.
+You are an expert quiz generator with advanced knowledge of assessment design.
 
-🎯 Your task is to generate a **STRICTLY VALID JSON** quiz for the lesson titled: "${lessonTitle}".
+🎯 Your task is to generate a STRICTLY VALID JSON quiz for the lesson titled: "${lessonTitle}"
+
+📖 Lesson Content (reference for generating questions):
+
+json
+Copy
+Edit
+${JSON.stringify(contentBlocks)}
 
 📌 **Learner Profile (FOLLOW STRICTLY):**
 - Skill Level: ${level || 'General'}
@@ -484,18 +603,29 @@ You are an expert educational assessment designer.
 - Available Time: ${timeCommitment || 'Flexible'}
 - Learning Style: ${learningStyle || 'None specified'}
 
-📖 Lesson Content (REFERENCE ONLY, DO NOT INCLUDE IN RESPONSE):
-${JSON.stringify(contentBlocks)}
+⚠️ IMPORTANT FORMATTING RULES (MANDATORY):
 
-⚠️ **ABSOLUTE JSON RULES**:
-- OUTPUT MUST start directly with '{' and end with '}'.
-- OMIT markdown, explanations, introductory text, comments, or code fences.
-- OMIT empty or unknown values.
-- Strings MUST use double quotes. Escape embedded quotes properly: \\".
-- Trailing commas are NOT allowed.
-- If JSON generation fails, respond ONLY with '{}'.
+Respond ONLY with strictly valid JSON. The output MUST start directly with { and end with }.
 
-📚 **REQUIRED JSON FORMAT**:
+NO explanations, introductions, or markdown formatting.
+
+DO NOT include phrases like "Here is..." or "Sure!".
+
+All property names and string values MUST use double quotes ("").
+
+DO NOT leave out commas.
+
+DO NOT include trailing commas.
+
+If you cannot generate STRICT JSON, respond with '{}'.
+
+Escape any special characters properly (e.g., use \" for embedded quotes).
+
+📚 Output JSON Format (STRICTLY REQUIRED):
+
+json
+Copy
+Edit
 {
   "title": "Quiz for ${lessonTitle}",
   "duration": "10 minutes",
@@ -505,38 +635,58 @@ ${JSON.stringify(contentBlocks)}
   "questions": [
     {
       "number": 1,
-      "question": "Clear, concise question based on the lesson content.",
+      "question": "Clear, specific, and unambiguous question based strictly on the lesson content.",
       "type": "MCQ" | "MULTIPLE_SELECT" | "DESCRIPTIVE" | "TRUE_FALSE",
-      "options": ["Option A", "Option B", "Option C", "Option D"],  // REQUIRED for MCQ & MULTIPLE_SELECT ONLY
+      "options": ["A", "B", "C", "D"],      // REQUIRED for MCQ & MULTIPLE_SELECT only
       "marks": 10,
-      "correctAnswers": ["A"],                                      // REQUIRED for ALL except DESCRIPTIVE
-      "explanation": "Short explanation of the correct answer.",    // REQUIRED for ALL except DESCRIPTIVE
-      "rubric": ["Point 1", "Point 2"]                              // REQUIRED for DESCRIPTIVE ONLY
+      "correctAnswers": ["A"],              // REQUIRED for all EXCEPT DESCRIPTIVE
+      "explanation": "Short explanation of why the answer is correct.", // REQUIRED for all except DESCRIPTIVE
+      "rubric": ["Point 1", "Point 2"]      // REQUIRED for DESCRIPTIVE only
     }
   ]
 }
+✅ Instructions for Generating Quiz Questions:
 
-✅ **Quiz Requirements**:
-- **5 to 8 questions** covering a mix of concepts, difficulty levels, and question types.
-- **Types:**
-  - MCQ → 4 plausible, distinct options.
-  - MULTIPLE_SELECT → 4 plausible options, multiple correct.
-  - TRUE_FALSE → Must be clearly True or False.
-  - DESCRIPTIVE → Include rubric (minimum 2 points) for grading.
-- Total Marks MUST equal 50.
-- Number questions sequentially starting at 1.
-- Adjust difficulty based on learner’s **skill level**.
-- Avoid questions related to: ${dislikedTopics || 'None specified'}.
-- Explanations REQUIRED for all except DESCRIPTIVE.
-- Provide **practical application-based** questions if the learning style is "Project-focused".
-- Questions MUST vary in complexity (easy → medium → hard).
+Provide 5 to 8 meaningful questions to test understanding of the lesson.
 
-🔐 **STRICT VALID JSON ONLY.** Respond with '{}' if unsure.
+Balance the quiz with different question types:
+
+MCQ: Single correct answer.
+
+MULTIPLE_SELECT: Multiple correct options.
+
+TRUE_FALSE: Only "True" or "False" as options.
+
+DESCRIPTIVE: Requires a grading rubric with at least 2 key points.
+
+MCQ & MULTIPLE_SELECT must include 4 plausible, realistic options. Avoid obviously wrong choices.
+
+For DESCRIPTIVE questions, provide a grading rubric — a list of specific key points learners should cover.
+
+Ensure clarity and direct relevance to the lesson content.
+
+Avoid duplicate or repetitive questions.
+
+📌 Validation and Quality Rules:
+
+All objects and arrays must be fully populated and syntactically correct.
+
+If any part of the JSON would be invalid, REPAIR it before responding.
+
+Each "number" must be sequential, starting from 1.
+
+Every question must have the "marks" field, and all marks should add up to "totalMarks".
+
+Preferably mix easy, medium, and challenging questions.
+
+🔒 STRICT JSON COMPLIANCE REQUIRED.
+
+If you fully understand the lesson content and the JSON format, begin generating now.
+
 `
 }
 
-
-function getPostCourseDataPrompt({
+function getPostCourseDataPrompt ({
   topic,
   level = '',
   preferredTopics = '',
@@ -556,7 +706,39 @@ function getPostCourseDataPrompt({
   return `
 You are an expert educational analyst and instructional designer.
 
-🎯 Your task is to generate a **STRICTLY VALID JSON** object for the **summary**, **key points**, and **analytics** of the personalized course titled: "${topic}".
+🎯 Your task is to generate a strictly valid JSON object representing the summary, key points, and analytics for the course titled: "${topic}"
+
+📖 The JSON must follow this exact schema:
+
+json
+Copy
+Edit
+{
+  "summary": {
+    "overview": "2-3 sentence overview of the course content and its purpose.",
+    "whatYouLearned": ["Concept 1", "Concept 2", "Concept 3"],
+    "skillsGained": ["Skill 1", "Skill 2", "Skill 3"],
+    "nextSteps": ["Recommended next topic 1", "Recommended next topic 2"]
+  },
+  "keyPoints": [
+    {
+      "category": "e.g., Core Concepts, Best Practices, Tools Used",
+      "points": ["Important point 1", "Important point 2", "Important point 3"]
+    }
+  ],
+  "analytics": {
+    "timeSpentTotal": float,           // Total time spent on the course in minutes (e.g., 120.5)
+    "timeSpentLessons": float,         // Time spent on lessons in minutes (e.g., 90.0)
+    "timeSpentQuizzes": float,         // Time spent on quizzes in minutes (e.g., 30.5)
+    "averageScore": float,             // Average quiz score percentage (0 to 100)
+    "totalQuizzes": integer,           // Total number of quizzes in the course
+    "passedQuizzes": integer,          // Number of quizzes passed successfully
+    "grade": "EXCELLENT" | "GOOD" | "AVERAGE" | "NEEDS_IMPROVEMENT",
+    "lessonsCompleted": integer,       // Number of lessons completed
+    "quizzesCompleted": integer,       // Number of quizzes completed
+    "totalLessons": integer            // Total number of lessons in the course
+  }
+}
 
 📌 **Learner Profile:**
 - Skill Level: ${level || 'General'}
@@ -566,56 +748,56 @@ You are an expert educational analyst and instructional designer.
 - Available Time: ${timeCommitment || 'Flexible'}
 - Learning Style: ${learningStyle || 'None specified'}
 
-⚠️ **STRICT JSON FORMAT RULES**:
-- MUST start with '{' and end with '}' — NO other output allowed.
-- NO markdown, explanations, or introductory text.
-- OMIT empty or unknown values.
-- All property names and string values must be double-quoted.
-- Escape embedded quotes properly using \\".
-- NO trailing commas.
-- If JSON generation fails or is uncertain, respond ONLY with '{}'.
+⚠️ STRICT FORMATTING RULES (MANDATORY):
 
-📚 **REQUIRED JSON STRUCTURE**:
-{
-  "summary": {
-    "overview": "2–3 sentences summarizing the course tailored to the learner’s ${goal || 'learning objective'}.",
-    "whatYouLearned": ["Concept 1", "Concept 2", "Concept 3"],
-    "skillsGained": ["Skill 1", "Skill 2", "Skill 3"],
-    "nextSteps": ["Recommended topic 1", "Recommended topic 2"]
-  },
-  "keyPoints": [
-    {
-      "category": "e.g., Core Concepts, Best Practices, Tools Used",
-      "points": ["Key point 1", "Key point 2", "Key point 3"]
-    }
-  ],
-  "analytics": {
-    "timeSpentTotal": float,            // = timeSpentLessons + timeSpentQuizzes (e.g., 120.5)
-    "timeSpentLessons": float,          // (e.g., 90.0)
-    "timeSpentQuizzes": float,          // (e.g., 30.5)
-    "averageScore": float,              // (e.g., 85.0)
-    "totalQuizzes": integer,            // (e.g., 5)
-    "passedQuizzes": integer,           // (e.g., 4)
-    "grade": "EXCELLENT" | "GOOD" | "AVERAGE" | "NEEDS_IMPROVEMENT",
-    "lessonsCompleted": integer,        // (e.g., 10)
-    "quizzesCompleted": integer,        // (e.g., 5)
-    "totalLessons": integer             // (e.g., 10)
-  }
-}
+Respond ONLY with valid JSON — starting with { and ending with }.
 
-✅ **Generation Guidelines**:
-- Overview must reflect **goal** or general learning purpose.
-- Avoid mentioning: ${dislikedTopics || 'None'}.
-- nextSteps → Recommend relevant follow-up learning paths.
-- **Grade/averageScore correlation:**
-  - EXCELLENT → 85–100
-  - GOOD → 70–85
-  - AVERAGE → 50–70
-  - NEEDS_IMPROVEMENT → Below 50
-- Use **float** numbers for time metrics; **integers** for counts.
-- Arrays for **whatYouLearned**, **skillsGained**, and **nextSteps** should each have **at least 2–3** items.
-- Ensure that **timeSpentTotal = timeSpentLessons + timeSpentQuizzes**.
+NO introduction, explanation, or markdown formatting.
 
-🔐 **STRICT VALID JSON ONLY.** Respond with '{}' if unsure.
+DO NOT include phrases like "Here is..." or "Sure!".
+
+All property names and string values must be enclosed in double quotes ("").
+
+Do not omit commas or include trailing commas.
+
+Escape embedded quotes properly (use \" where needed).
+
+If you cannot generate STRICT JSON, respond with '{}'.
+
+✅ Content Guidelines:
+
+"overview": Provide a concise and meaningful description of the course purpose.
+
+"whatYouLearned": Major concepts/knowledge areas covered in the course.
+
+"skillsGained": Practical skills or conceptual abilities acquired.
+
+"nextSteps": Suggestions for advancing knowledge or skills beyond this course.
+
+"keyPoints":
+
+Each key point must be relevant and actionable.
+
+Include at least 3 points per category.
+
+"analytics":
+
+Numbers must be realistic and coherent.
+
+Example: timeSpentTotal = timeSpentLessons + timeSpentQuizzes
+
+"averageScore" should realistically correspond to "grade" (e.g., if "grade": "GOOD", "averageScore" should be around 70-80).
+
+⚠️ Validation Rules (Critical):
+
+Ensure that ALL fields are present, even if empty arrays are required.
+
+Use realistic float values for time (e.g., 120.5) — NOT strings.
+
+grade must be one of: "EXCELLENT", "GOOD", "AVERAGE", "NEEDS_IMPROVEMENT"
+
+🔒 STRICT JSON COMPLIANCE REQUIRED.
+
+Begin generating the JSON now if you fully understand these instructions.
 `
 }
